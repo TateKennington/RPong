@@ -1,6 +1,7 @@
 use amethyst::{
     assets::{AssetStorage, Loader, Handle},
     core::transform::Transform,
+    core::timing::Time,
     ecs::prelude::{Component, DenseVecStorage},
     prelude::*,
     renderer::{Camera, ImageFormat, SpriteRender, SpriteSheet, SpriteSheetFormat, Texture},
@@ -11,6 +12,19 @@ pub const ARENA_WIDTH: f32 = 100.0;
 
 pub const PADDLE_WIDTH: f32 = 4.0;
 pub const PADDLE_HEIGHT: f32 = 16.0;
+
+pub const BALL_VELOCITY_X: f32 = 55.0;
+pub const BALL_VELOCITY_Y: f32 = 30.0;
+pub const BALL_RADIUS: f32 = 2.0;
+
+pub struct Ball{
+    pub velocity: [f32; 2],
+    pub radius: f32,
+}
+
+impl Component for Ball{
+    type Storage = DenseVecStorage<Self>;
+}
 
 #[derive(PartialEq, Eq)]
 pub enum Side{
@@ -36,6 +50,26 @@ impl Paddle{
 
 impl Component for Paddle{
     type Storage = DenseVecStorage<Self>;
+}
+
+fn initialise_ball(world: &mut World, sprite_sheet_handle: Handle<SpriteSheet>){
+    let mut transform = Transform::default();
+    transform.set_translation_xyz(ARENA_WIDTH * 0.5, ARENA_HEIGHT * 0.5, 0.0);
+
+    let sprite_render = SpriteRender{
+        sprite_sheet: sprite_sheet_handle,
+        sprite_number: 1,
+    };
+
+    world
+        .create_entity()
+        .with(transform)
+        .with(sprite_render)
+        .with(Ball {
+            radius: BALL_RADIUS,
+            velocity: [BALL_VELOCITY_X, BALL_VELOCITY_Y]
+        })
+        .build();
 }
 
 fn initialise_camera(world: &mut World){
@@ -97,14 +131,37 @@ fn load_sprite_sheet(world: &mut World) -> Handle<SpriteSheet>{
     )
 }
 
-pub struct Pong;
+#[derive(Default)]
+pub struct Pong{
+    ball_spawn_timer: Option<f32>,
+    sprite_sheet_handle: Option<Handle<SpriteSheet>>,
+}
 
 impl SimpleState for Pong {
     fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>){
         let world = data.world;
-        let sprite_sheet_handle = load_sprite_sheet(world);
+
+        world.register::<Ball>();
+
+        self.ball_spawn_timer.replace(1.0);
 
         initialise_camera(world);
-        initialise_paddles(world, sprite_sheet_handle);
+        self.sprite_sheet_handle.replace(load_sprite_sheet(world));
+        initialise_paddles(world, self.sprite_sheet_handle.clone().unwrap());
+    }
+
+    fn update(&mut self, data: &mut StateData<'_, GameData<'_, '_,>>) -> SimpleTrans{
+        if let Some(mut timer) = self.ball_spawn_timer.take() {
+            {
+                let time = data.world.fetch::<Time>();
+                timer -= time.delta_seconds();
+            }
+            if timer <= 0.0{
+                initialise_ball(data.world, self.sprite_sheet_handle.clone().unwrap());
+            } else {
+                self.ball_spawn_timer.replace(timer);
+            }
+        }
+        Trans::None
     }
 }
